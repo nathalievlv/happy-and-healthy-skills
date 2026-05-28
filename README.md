@@ -37,8 +37,8 @@ Every recommendation is source-attributed to a named study. No generic advice, n
 
 1. Clone this repo into your project directory:
    ```bash
-   git clone https://github.com/natalishkav/happy-and-healthy.git
-   cd happy-and-healthy
+   git clone https://github.com/nathalievlv/happy-and-healthy-skills.git
+   cd happy-and-healthy-skills
    ```
 
 2. Open Claude Code in the repo directory:
