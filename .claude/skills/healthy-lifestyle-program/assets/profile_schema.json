@@ -1,0 +1,516 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/nathalievlv/healthy-ageing/blob/main/work/skill_design/profile_schema.json",
+  "title": "User profile for healthy-lifestyle-program",
+  "description": "Canonical input shape for the healthy-lifestyle-program skill. The orchestrator collects this once and passes it through; the skill falls back to interactive Q&A when invoked standalone. Only the 'required' fields are strictly necessary — all others are optional and the skill outputs 'recommend testing/measuring' when missing. Each field has a 'description' (technical, for the engine) and where useful an 'intake_help' (user-facing guidance, for the orchestrator to phrase the question). Unit handling: this schema stores canonical metric (kg, cm) and US-convention labs (mg/dL for glucose/lipids, ng/mL for hormones — matching how Wright/Comite/AUA cite values). The orchestrator infers the user's local conventions from `country` and asks the user in their natural units (e.g., a US user types weight in pounds, a UK user can use stone+lb), then converts before populating this profile. Lab values from regions using mmol/L are converted by the orchestrator before storage.",
+  "type": "object",
+  "required": ["sex", "age", "weight_kg", "height_cm", "avg_sleep_hours", "country"],
+  "properties": {
+
+    "schema_version": {
+      "type": "string",
+      "const": "1.1",
+      "description": "Lock to the version the skill expects. v1.1 adds: city, pregnancy_status, hormonal_contraception_method, heritage_or_ethnicity, current_weekly_schedule, current_supplements, current_skincare_routine, wearable_data, monthly_budget_eur, insurance_plan."
+    },
+
+    "country": {
+      "type": "string",
+      "description": "Country (free text or ISO 3166-1 code). Required. Used by the orchestrator to (a) determine the user's natural unit conventions for intake (lb vs kg, ft+in vs cm, mg/dL vs mmol/L, °F vs °C) and (b) infer climate context (latitude, sun exposure). The skill itself only reads this when location-specific guidance is needed; the orchestrator does the unit conversion before populating the rest of the profile.",
+      "intake_help": "What country do you live in?"
+    },
+
+    "city": {
+      "type": "string",
+      "description": "City or metro area within `country`. Used to filter gym chains, lab availability, sauna culture, hammam access. Granularity matters — Valencia vs. Madrid have different gym chain presence; Naples vs. Rome have different lab access.",
+      "intake_help": "Which city or metro area do you live in? (Used to recommend specific gyms, labs, and other location-dependent options.)"
+    },
+
+    "sex": {
+      "type": "string",
+      "enum": ["M", "F"],
+      "description": "Biological sex at birth. Gates sex-cohort-specific protocol routing (TRT vs. HRT, fasting policy, cold-immersion temp threshold, HRV cycle interpretation, etc.). Required.",
+      "intake_help": "We use this to route protocols whose evidence differs by biological sex (e.g., hormone therapy, fasting tolerance, cold-immersion temperature). If you are intersex or trans, pick the option closest to your current hormonal physiology — you can also add a note in the freeform field at the end."
+    },
+
+    "age": {
+      "type": "integer",
+      "minimum": 18,
+      "maximum": 100,
+      "description": "Age in years. Required. Gates age-tier recommendations (Wright critical decade 35–45F / 40–50M, HRT 10-year window, post-65 TRT policy)."
+    },
+
+    "weight_kg": {
+      "type": "number",
+      "minimum": 30,
+      "maximum": 250,
+      "description": "Body weight in kilograms (canonical). Orchestrator asks the user in their local convention (lb in US, kg or stone+lb in UK, kg elsewhere) and converts. Required for protein-target math (Phillips ≥0.4 g/kg/meal, Wright 1g/lb-ideal, Sims ≥1g/lb).",
+      "intake_help": "Use your typical morning weight, after the bathroom and before eating."
+    },
+
+    "height_cm": {
+      "type": "number",
+      "minimum": 100,
+      "maximum": 230,
+      "description": "Height in centimeters (canonical). Orchestrator asks in local convention (ft+in in US, cm elsewhere) and converts. Required (paired with weight_kg). Enables BMI for sleep-apnea risk and ideal-weight calculations.",
+      "intake_help": "Tell us your height; we'll handle the units."
+    },
+
+    "avg_sleep_hours": {
+      "type": "number",
+      "minimum": 3,
+      "maximum": 12,
+      "description": "Average hours per night over the last month. Required — Wright ranks sleep as the #1 pillar; <3-4 hours is flagged as physiologically devastating.",
+      "intake_help": "Estimate the time you're actually asleep — not just lying in bed. If you don't track it, think about your usual bedtime and wake time, then subtract 20–30 minutes for time falling asleep and night wakings."
+    },
+
+    "heritage_or_ethnicity": {
+      "type": "string",
+      "description": "Short free-text heritage description (e.g., 'Slavic / Russian', 'Mediterranean', 'East Asian', 'Sub-Saharan African', 'Northern European', 'South Asian', 'mixed Latin American'). Used as a fallback for Fitzpatrick skin type when the user can't self-classify, and as a context cue for melasma risk, photoaging speed, and culturally-aware nutrition recommendations. Do not infer Fitzpatrick from country of residence — a Slavic person living in Spain has Slavic skin, not Mediterranean skin.",
+      "intake_help": "Your ethnic heritage (you can describe in your own words — e.g., 'Slavic', 'Mediterranean', 'East Asian'). Combined with Fitzpatrick skin type (asked separately), this informs sun protocol and skincare intensity. Skip if you'd rather not say."
+    },
+
+    "pregnancy_status": {
+      "type": "string",
+      "enum": ["not_pregnant", "currently_pregnant", "breastfeeding", "trying_to_conceive", "recently_postpartum", "not_applicable"],
+      "description": "Required when sex=F. Drives the pregnancy gate — currently_pregnant / breastfeeding / trying_to_conceive trigger automatic exclusions (no retinoids, no senolytics, no NMN/NR, no extended fasting, no sauna ≥80 °C first trimester, no cold immersion, no Wim Hof, no alcohol, no off-label hormones) and adjustments (vitamin D 4,000–6,000 IU/day per Hollis; calcium/choline emphasis; iron priority). recently_postpartum (<12 months) keeps some exclusions (high-temp sauna, extended fasting if still breastfeeding).",
+      "intake_help": "Are you currently pregnant, trying to conceive, breastfeeding, or recently postpartum? Several recommendations change based on this (some supplements and protocols are excluded; some doses adjust upward). 'Not applicable' for users where the question doesn't apply."
+    },
+
+    "hormonal_contraception_method": {
+      "type": "object",
+      "description": "Required when sex=F and not in menopause. The specific contraceptive formulation matters significantly — bone density impact, nutrient depletion, SHBG/free-T effect, mood, and clotting risk all vary by product and route. Do not treat 'on HC' as a single category.",
+      "intake_help": "If you use hormonal contraception, what specifically? Pill (which brand/generic name?), vaginal ring (NuvaRing, Ornibel, Etoring), IUD (Mirena, Kyleena, Skyla, Liletta, Jaydess, copper non-hormonal), implant (Nexplanon, Implanon), injection (DMPA/Depo-Provera), or none. Brand specifics matter — DMPA affects bone, vaginal rings have less hepatic impact than oral pills, IUDs have minimal systemic estrogen.",
+      "properties": {
+        "method_class": {
+          "type": "string",
+          "enum": ["combined_oral_pill", "progestin_only_pill", "vaginal_ring", "hormonal_iud", "copper_iud", "implant", "depot_injection", "transdermal_patch", "barrier_only", "none", "permanent", "other"],
+          "intake_help": "Pick the broad category. The specific brand goes in the next field."
+        },
+        "brand_or_generic_name": {
+          "type": "string",
+          "intake_help": "Brand name on the package — e.g., 'Ornibel', 'NuvaRing', 'Yaz', 'Diane-35', 'Mirena', 'Kyleena', 'Nexplanon', 'Depo-Provera'."
+        },
+        "years_on_current_method": {
+          "type": "number",
+          "minimum": 0,
+          "intake_help": "Roughly how many years on this current method/brand. Long-term use (>5 years) of some formulations has cumulative nutrient-depletion effects worth flagging."
+        }
+      }
+    },
+
+    "body_fat_percent": {
+      "type": "number",
+      "minimum": 5,
+      "maximum": 60,
+      "description": "Optional. From DEXA / bioimpedance / estimate.",
+      "intake_help": "Optional. Comes from a DEXA scan, a smart scale, or an InBody machine at a gym. Don't guess — leave blank if you've never had it measured."
+    },
+
+    "waist_cm": {
+      "type": "number",
+      "description": "Optional. Visceral-fat proxy; relevant for cortisol/insulin protocols.",
+      "intake_help": "Optional. Measure at the level of your belly button, standing relaxed (no sucking in). Tape parallel to the floor. Best done first thing in the morning."
+    },
+
+    "activity_level": {
+      "type": "string",
+      "enum": ["sedentary", "lightly_active", "moderately_active", "very_active", "athlete", "unknown"],
+      "description": "Drives beginner-vs-intermediate movement template selection.",
+      "intake_help": "Sedentary = desk job, no formal exercise. Lightly active = 1–2 short workouts a week. Moderately active = 3–4 workouts a week. Very active = 5+ workouts a week with some intensity. Athlete = trains 6–7 days a week with structured programming."
+    },
+
+    "weekly_resistance_training_hours": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Optional. Current weekly resistance-training hours.",
+      "intake_help": "Time spent on weight training, bodyweight strength work, or resistance bands. Don't include cardio or general activity. Estimate is fine."
+    },
+
+    "weekly_cardio_hours": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Optional. Current weekly cardio hours.",
+      "intake_help": "Time spent on anything that elevates your heart rate: brisk walking, running, cycling, swimming, hiking, dance class. Estimate is fine."
+    },
+
+    "avg_daily_steps": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Optional. Used for NEAT baseline; Starrett habit floor is 8–10k.",
+      "intake_help": "If you carry a phone or wear a fitness tracker, check the average over the last week or two. If you don't track steps, leave blank."
+    },
+
+    "sleep_quality_1to5": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5,
+      "description": "Optional subjective rating.",
+      "intake_help": "1 = terrible, you wake up exhausted; 3 = okay, you function but don't feel rested; 5 = excellent, you wake up refreshed most days."
+    },
+
+    "sleep_issues": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["snoring", "witnessed_apnea", "waking_unrefreshed", "frequent_night_waking", "trouble_falling_asleep", "early_waking", "morning_headaches", "none"]
+      },
+      "description": "Multi-select. Triggers sleep-apnea screening recommendation when relevant items present (especially M users — Malhotra OSA prevalence 24% pre-menopausal M).",
+      "intake_help": "Select all that apply. 'Witnessed apnea' = a partner has told you that you stop breathing or gasp during sleep. 'Morning headaches' = headaches in the first hour after waking, which can signal oxygen drops during the night."
+    },
+
+    "diet_pattern": {
+      "type": "string",
+      "enum": ["omnivore", "pescatarian", "vegetarian", "vegan", "carnivore", "other", "unknown"],
+      "description": "Primary eating pattern. Affects protein-source recommendations (leucine threshold easier to hit with whey/animal protein; vegan needs higher dose).",
+      "intake_help": "Omnivore = eats everything. Pescatarian = fish but no other meat. Vegetarian = no meat or fish, but eats dairy/eggs. Vegan = no animal products at all. Carnivore = mostly or entirely animal foods."
+    },
+
+    "dietary_restrictions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Free-text array. Allergies, religious, ethical.",
+      "intake_help": "List any foods you avoid for medical, religious, or ethical reasons (e.g., gluten, dairy, pork, shellfish, peanuts)."
+    },
+
+    "alcohol_drinks_per_week": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Standard drinks per week (canonical). Orchestrator asks in user's local terms (e.g., 'glasses of wine + beers + cocktails per week') and converts. Wright: alcohol is sleep's biggest enemy; 85/15 lifestyle rule.",
+      "intake_help": "Average over a typical week. Tell us what you drink and roughly how often; we'll convert to standard drinks."
+    },
+
+    "caffeine_mg_per_day": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Daily caffeine in milligrams (canonical). Orchestrator asks the user to list daily caffeinated drinks and converts. Wright cap: ≤400 mg/day, ≤200 mg/sitting.",
+      "intake_help": "Just tell us what you drink in a typical day — coffees, teas, sodas, energy drinks. We'll do the math."
+    },
+
+    "existing_conditions": {
+      "type": "object",
+      "description": "Use 'yes' / 'no' / 'unknown' for each. 'unknown' triggers a screening recommendation in the diagnostics pillar.",
+      "intake_help": "For each condition, choose: yes (you've been diagnosed), no (you've been tested and don't have it), or unknown (you've never been tested or don't know). 'Unknown' is a real answer — it tells the program to recommend the screening test.",
+      "properties": {
+        "diabetes_t1_or_t2":         { "type": "string", "enum": ["yes", "no", "unknown"] },
+        "prediabetes":               { "type": "string", "enum": ["yes", "no", "unknown"], "intake_help": "Blood sugar higher than normal but not yet diabetic. Diagnosed via fasting glucose or HbA1c blood test." },
+        "hypertension":              { "type": "string", "enum": ["yes", "no", "unknown"], "intake_help": "High blood pressure (usually >130/80 or being treated for it)." },
+        "thyroid_disorder":          { "type": "string", "enum": ["yes", "no", "unknown"], "intake_help": "Includes hypothyroidism, hyperthyroidism, Hashimoto's, Graves' disease, or thyroid nodules/cancer." },
+        "autoimmune":                { "type": "string", "enum": ["yes", "no", "unknown"], "intake_help": "Conditions where the immune system attacks the body's own tissues. Examples: rheumatoid arthritis, lupus, Hashimoto's thyroiditis, Crohn's, ulcerative colitis, multiple sclerosis, type 1 diabetes, psoriasis." },
+        "cardiovascular_disease":    { "type": "string", "enum": ["yes", "no", "unknown"], "intake_help": "Heart attack, angina, stroke, coronary artery disease, peripheral artery disease, or heart failure history." },
+        "atrial_fibrillation":       { "type": "string", "enum": ["yes", "no", "unknown"], "intake_help": "An irregular, often rapid heartbeat. If a doctor has told you you have it (sometimes called AFib or AF), select yes. Relevant because some protocols (cold immersion, TRT) interact with arrhythmias." },
+        "cancer_history":            { "type": "string", "enum": ["yes", "no", "unknown"], "intake_help": "Any prior cancer diagnosis, even if treated and in remission." },
+        "prostate_concerns":         { "type": "string", "enum": ["yes", "no", "unknown"], "intake_help": "Men only. Includes BPH (enlarged prostate), elevated PSA, prior prostate biopsy, or prostate cancer history." },
+        "depression_or_anxiety":     { "type": "string", "enum": ["yes", "no", "unknown"], "intake_help": "Diagnosed depression, anxiety, PTSD, or any other mood/anxiety disorder, current or past." },
+        "osteopenia_or_osteoporosis":{ "type": "string", "enum": ["yes", "no", "unknown"], "intake_help": "Low bone density (osteopenia) or significantly low bone density that increases fracture risk (osteoporosis). Diagnosed via DEXA scan." },
+        "sleep_apnea_diagnosed":     { "type": "string", "enum": ["yes", "no", "unknown"], "intake_help": "Diagnosed via a sleep study (polysomnography or home sleep test). Often treated with CPAP." }
+      }
+    },
+
+    "current_medications": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Free-text list. Skill flags interactions only when cleanly identifiable; otherwise refers user to clinician.",
+      "intake_help": "List any prescription medications you take regularly, including hormone therapy, blood pressure meds, statins, antidepressants, thyroid medication, etc. Skip occasional/PRN meds."
+    },
+
+    "injuries_or_mobility_limits": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Free-text list. Affects movement program (e.g., 'frozen shoulder' triggers Wright's stage-based protocol).",
+      "intake_help": "List anything that limits your movement: bad knee, lower back pain, frozen shoulder, plantar fasciitis, etc. Keep it short — a few words each."
+    },
+
+    "hormonal_status_female": {
+      "type": "object",
+      "description": "Required when sex=F. Drives Wright HRT/MSM protocol routing.",
+      "properties": {
+        "cycle_status": {
+          "type": "string",
+          "enum": ["regular_cycling", "irregular", "perimenopause", "menopause", "postmenopause", "surgical_menopause", "unknown"],
+          "intake_help": "Regular cycling = periods every ~21–35 days. Irregular = cycles vary widely but you still get periods. Perimenopause = irregular periods plus symptoms (hot flashes, sleep changes, mood shifts) but you've still had a period in the last year. Menopause = no period for 12 consecutive months. Postmenopause = years past your final period. Surgical menopause = ovaries removed."
+        },
+        "age_of_last_period":         { "type": "integer", "intake_help": "If still cycling, leave blank. If your periods have stopped, your best estimate of your age when your last period happened. Drives the Wright 10-year HRT-window calculation." },
+        "currently_on_hrt":           { "type": "string", "enum": ["yes", "no", "unknown"], "intake_help": "Hormone replacement therapy: estrogen patch/gel/pill, progesterone, vaginal estrogen, or testosterone for women." },
+        "vasomotor_symptoms":         { "type": "string", "enum": ["none", "mild", "moderate", "severe", "unknown"], "intake_help": "Hot flashes (sudden waves of heat, sometimes with flushing or sweating) and night sweats (waking up damp or needing to change clothes). Do NOT use the term 'vasomotor symptoms' in intake questions — most non-medical users won't recognize it and will default to 'no'. Ask plainly: 'Do you get hot flashes or night sweats?' Mild = a few per week, manageable. Moderate = daily, disruptive. Severe = many per day, significantly affecting quality of life or sleep." },
+        "msm_symptoms": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["joint_pain", "muscle_loss", "frozen_shoulder", "rapid_bone_density_loss", "brain_fog", "none"] },
+          "intake_help": "Multi-select. Do NOT use the term 'MSM' or 'Musculoskeletal Syndrome of Menopause' in intake questions — it's a specialist term most users won't recognize. Ask plainly: 'Any joint or muscle aches that feel diffuse — everything is a bit stiff and sore — rather than one specific injury?' Then ask about each item separately: joint pain, muscle loss/weakness, frozen shoulder (sudden stiffness in one shoulder), bone density concerns, brain fog or memory changes."
+        }
+      }
+    },
+
+    "hormonal_status_male": {
+      "type": "object",
+      "description": "Required when sex=M. Drives TRT decision tree.",
+      "properties": {
+        "currently_on_trt":   { "type": "string", "enum": ["yes", "no", "unknown"], "intake_help": "Testosterone replacement therapy in any form (injection, gel, patch, pellet, oral)." },
+        "trt_route":          { "type": "string", "enum": ["cypionate_im", "cypionate_sc", "enanthate", "gel_transdermal", "pellets", "oral_undecanoate", "nasal", "none", "unknown"], "intake_help": "Only if currently on TRT. Cypionate IM = injection into muscle. Cypionate SC = injection just under the skin. Enanthate = similar to cypionate, common in Europe. Gel = applied to skin daily (AndroGel, Testim). Pellets = implanted under the skin every 3–6 months (Testopel). Oral undecanoate = capsules (Jatenzo, Tlando). Nasal = nasal gel." },
+        "low_t_symptoms": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["persistent_fatigue", "low_libido", "erectile_dysfunction", "loss_of_muscle_mass", "depression_irritability", "loss_of_morning_erections", "none"] },
+          "intake_help": "Multi-select. Symptoms that have lasted weeks or months, not just a bad day. AUA guidelines require both symptoms AND low blood test before considering TRT — this drives whether the program suggests testing or focuses on lifestyle first."
+        }
+      }
+    },
+
+    "recent_labs": {
+      "type": "object",
+      "description": "All optional. Canonical units listed per field (US convention: mg/dL for glucose/lipids, ng/mL for hormones). Orchestrator accepts results in any local unit (mmol/L glucose/cholesterol, nmol/L vitamin D, etc.) and converts before storing here. Skill recommends getting any lab not provided when relevant to a recommendation.",
+      "intake_help": "If you have a recent blood test, share the values you have — in whatever units your report uses (we'll handle conversions). Leave anything blank and we'll recommend it as a screening test instead of guessing.",
+      "properties": {
+        "as_of_date":                  { "type": "string", "format": "date", "intake_help": "Date of the blood draw, not the report." },
+        "fasting_glucose_mg_dl":       { "type": "number", "intake_help": "Fasting blood sugar. Comite/Wright optimal ~85 mg/dL; ≥110 prediabetic. Often labeled 'glucose' or 'fasting glucose'." },
+        "fasting_insulin_uIU_mL":      { "type": "number", "intake_help": "Fasting insulin level. Less commonly tested — found on metabolic panels." },
+        "hba1c_percent":               { "type": "number", "intake_help": "Average blood sugar over ~3 months. Reported as a percentage." },
+        "total_cholesterol_mg_dl":     { "type": "number" },
+        "hdl_mg_dl":                   { "type": "number", "intake_help": "'Good' cholesterol." },
+        "ldl_mg_dl":                   { "type": "number", "intake_help": "'Bad' cholesterol." },
+        "triglycerides_mg_dl":         { "type": "number" },
+        "chol_to_hdl_ratio":           { "type": "number", "intake_help": "Total cholesterol divided by HDL. Often calculated for you on the report. Wright/Comite target <2.0." },
+        "hs_crp_mg_L":                 { "type": "number", "intake_help": "High-sensitivity C-reactive protein — a measure of systemic inflammation. May be labeled 'hs-CRP' or 'cardio CRP'." },
+        "vitamin_d_25oh_ng_mL":        { "type": "number", "intake_help": "Vitamin D (25-hydroxy). Bischoff-Ferrari/Hollis target ≥40 ng/mL (≥100 nmol/L)." },
+        "ferritin_ng_mL":              { "type": "number", "intake_help": "Iron storage marker." },
+        "tsh_mIU_L":                   { "type": "number", "intake_help": "Thyroid-stimulating hormone — the standard thyroid screen." },
+        "free_t3_pg_mL":               { "type": "number", "intake_help": "Active thyroid hormone. Often missing from basic thyroid panels." },
+        "free_t4_ng_dL":               { "type": "number", "intake_help": "Storage thyroid hormone." },
+        "total_testosterone_ng_dL":    { "type": "number", "intake_help": "AUA threshold for low-T diagnosis: <300 ng/dL on two early-morning tests." },
+        "free_testosterone_pg_mL":     { "type": "number", "intake_help": "The biologically active fraction of testosterone." },
+        "estradiol_pg_mL":             { "type": "number", "intake_help": "Main estrogen. F: hormonal panel marker. M on TRT: target 30–50 pg/mL when an aromatase inhibitor is used (Khera)." },
+        "progesterone_ng_mL":          { "type": "number" },
+        "fsh_mIU_mL":                  { "type": "number", "intake_help": "Follicle-stimulating hormone — used to confirm menopause status." },
+        "shbg_nmol_L":                 { "type": "number", "intake_help": "Sex hormone binding globulin — affects how much testosterone is biologically available." },
+        "dhea_s_ug_dL":                { "type": "number" },
+        "psa_ng_mL":                   { "type": "number", "intake_help": "Prostate-specific antigen. Men 55–69 with shared decision-making (USPSTF Grade C). Men >70 generally not screened." },
+        "dexa_t_score_lumbar":         { "type": "number", "intake_help": "Bone density T-score from DEXA scan, lumbar spine." },
+        "dexa_t_score_femoral_neck":   { "type": "number", "intake_help": "Bone density T-score from DEXA scan, hip (femoral neck)." },
+        "vo2_max_ml_kg_min":           { "type": "number", "intake_help": "Cardiorespiratory fitness — measured at a metabolic lab on a treadmill or bike. Frailty floor 16 F / 18 M; >50 F is excellent." },
+        "grip_strength_kg":            { "type": "number", "intake_help": "Hand grip force on a dynamometer." },
+        "resting_heart_rate":          { "type": "integer", "intake_help": "Beats per minute, measured at rest (e.g., first thing in the morning before getting up)." },
+        "blood_pressure_systolic":     { "type": "integer" },
+        "blood_pressure_diastolic":    { "type": "integer" }
+      }
+    },
+
+    "current_weekly_schedule": {
+      "type": "array",
+      "description": "Day-by-day grid of current physical activities WITH TIMES. Critical for the audit-then-prescribe principle — new prescriptions must fit around fixed class times the user is already committed to. Example item: { day: 'Mon', start: '18:30', end: '19:30', activity: 'reformer pilates', regular: true }.",
+      "intake_help": "Walk me through a typical week of your physical activities, with specific times. Example: 'Mon 18:30–19:30 pilates, Tue 19:30–20:30 dance class, Sat 10:00–12:00 acroyoga, plus 1–2 hr cycling Saturday afternoon and another 1–2 hr cycling some weekdays.' This lets me build a program around what you already do — not on top of it.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "day":            { "type": "string", "enum": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "varies"] },
+          "start_time":     { "type": "string", "intake_help": "24-hour format, e.g., '18:30'. Leave blank for activities without a fixed time." },
+          "end_time":       { "type": "string" },
+          "activity":       { "type": "string", "intake_help": "E.g., 'reformer pilates', 'tribal fusion dance', 'cycling in park', 'acroyoga'." },
+          "regular":        { "type": "boolean", "intake_help": "True if this is a fixed weekly commitment; false if 'sometimes' or 'occasional'." },
+          "intensity_rough":{ "type": "string", "enum": ["low", "moderate", "high", "varies"] }
+        }
+      }
+    },
+
+    "current_supplements": {
+      "type": "array",
+      "description": "Current regular supplements (and prescription medications affecting nutrition) — brand, dose, timing. Used for the audit-then-prescribe principle: don't re-prescribe what the user already takes adequately. Also enables flagging of absorption-interaction timing issues (iron + zinc DMT1 competition, iron + coffee/calcium, etc.).",
+      "intake_help": "For each supplement or medication you take regularly: brand or generic name, dose (with units), and when you take it. Example: 'Ferro-Gradumet 325 mg ferrous sulfate, 1 tablet daily, morning' or 'Prozis magnesium bisglycinate 300 mg, before bed'. Include prescriptions that affect nutrition (e.g., HC, thyroid meds, statins).",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name":         { "type": "string", "intake_help": "Brand name on the bottle, or generic name if you don't recall the brand." },
+          "dose":         { "type": "string", "intake_help": "Include units. E.g., '5 g', '300 mg', '2,000 IU', '1 tablet'." },
+          "timing":       { "type": "string", "intake_help": "When in the day, and with/without food. E.g., 'morning empty stomach', 'before sleep', 'with breakfast'." },
+          "frequency":    { "type": "string", "intake_help": "E.g., 'daily', 'every other day', '5x/week', 'occasional'." }
+        }
+      }
+    },
+
+    "current_skincare_routine": {
+      "type": "object",
+      "description": "AM and PM skincare products (cleanser, actives, moisturizer, SPF). For the audit-then-prescribe principle. Skin is a pillar where users often have a developed routine; prescribing in a vacuum produces conflicting or redundant recommendations.",
+      "intake_help": "What does your current AM and PM skincare routine look like? For each step, the product name (brand + product line is best) and how often you use it. Example AM: 'cleanser → vitamin C serum (Brand X) → moisturizer → SPF 50 (Brand Y) → BB cream (Brand Z)'.",
+      "properties": {
+        "am_routine": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "step":      { "type": "string", "enum": ["cleanser", "toner", "vitamin_c_serum", "other_serum", "moisturizer", "spf", "tinted_spf", "bb_cream", "eye_cream", "lip", "other"] },
+              "product":   { "type": "string", "intake_help": "Brand + product line, e.g., 'Sesderma Mandelac gel' or 'La Roche-Posay Anthelios SPF 50'." },
+              "frequency": { "type": "string", "intake_help": "E.g., 'daily', '3x/week', 'alternate days'." }
+            }
+          }
+        },
+        "pm_routine": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "step":      { "type": "string", "enum": ["cleanser", "toner", "retinoid", "exfoliant", "azelaic_acid", "vitamin_c_serum", "other_serum", "moisturizer", "eye_cream", "lip", "other"] },
+              "product":   { "type": "string" },
+              "frequency": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+
+    "wearable_data": {
+      "type": "object",
+      "description": "If user has a wearable (Ultrahuman, Oura, Whoop, Apple Watch, Garmin, etc.), what current readings exist. Wearable VO2max is ±5–10% accurate but useful directionally — can reframe priorities (e.g., if VO2max already 88–90th percentile, sprint intervals are optimization, not deficit-filling). Discounts the value of lab gas-exchange testing.",
+      "intake_help": "Do you wear a fitness/recovery tracker? If yes, what does it show for your current VO2max, HRV (resting), resting heart rate, and sleep score? Even rough numbers are useful — they reframe what to prioritize.",
+      "properties": {
+        "device": {
+          "type": "string",
+          "enum": ["ultrahuman", "oura", "whoop", "apple_watch", "garmin", "polar", "fitbit", "samsung", "other", "none"]
+        },
+        "vo2max_estimate":  { "type": "number", "intake_help": "From your device's reading. Wearable VO2max is typically within ±5–10% of lab values." },
+        "hrv_resting_ms":   { "type": "number", "intake_help": "Average overnight HRV in milliseconds. Highly device-specific — Oura/Ultrahuman tend to be in similar range; Whoop different." },
+        "resting_hr":       { "type": "integer" },
+        "sleep_score_typical": { "type": "integer", "intake_help": "Typical recent sleep score from the device (most devices use a 0–100 scale)." }
+      }
+    },
+
+    "monthly_budget_eur": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Maximum monthly spend on health/fitness (gym + classes + supplements + skincare + private labs). Used to gate recommendations and surface a running cost table tied to this number. Stored as EUR canonical; orchestrator converts from user's local currency.",
+      "intake_help": "Max monthly budget for fitness, supplements, skincare, and private labs combined. Be honest — the program will respect this hard ceiling and tell you what to deprioritize if recommendations exceed it."
+    },
+
+    "insurance_plan": {
+      "type": "object",
+      "description": "What healthcare coverage the user has access to. Drives the public-vs-private diagnostic pathway and which lab/imaging routes to recommend.",
+      "intake_help": "What healthcare coverage do you have? Public system (yes/no + which country's system), private insurance (yes/no + name/plan), or self-pay only.",
+      "properties": {
+        "public_system": {
+          "type": "string",
+          "intake_help": "If yes, the name of the public health system you're enrolled in (e.g., 'NHS UK', 'Sanitat Valenciana', 'SUS Brazil', 'Krankenkasse Germany', 'Medicare US'). 'No' or blank if not enrolled."
+        },
+        "private_insurance": {
+          "type": "string",
+          "intake_help": "If yes, the insurance company/plan name (e.g., 'Adeslas', 'Sanitas', 'Aetna', 'BUPA'). Helpful to know what labs/imaging are covered."
+        }
+      }
+    },
+
+    "upcoming_travel": {
+      "type": "array",
+      "description": "OPTIONAL — only relevant when user mentions travel. Used to enable split-now-vs-later diagnostic strategy (defer comprehensive labs/DEXA to a cheaper-healthcare destination). Brazil, Mexico, Thailand, parts of EU/SE Asia often have high-quality private labs at 30–60% the EU/US/UK price.",
+      "intake_help": "Optional. If you have travel planned to a destination with cheaper, high-quality private healthcare in the next 6–12 months, mention it — I'll build a split lab strategy (urgent tests now, comprehensive later).",
+      "items": {
+        "type": "object",
+        "properties": {
+          "destination":     { "type": "string", "intake_help": "City + country." },
+          "approximate_date":{ "type": "string", "intake_help": "Month and year, e.g., 'November 2026'." },
+          "duration_days":   { "type": "integer" },
+          "purpose":         { "type": "string", "enum": ["vacation", "work", "family", "relocation", "other"] }
+        }
+      }
+    },
+
+    "goals": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "build_strength",
+          "lose_fat",
+          "preserve_muscle",
+          "improve_sleep",
+          "improve_energy",
+          "prevent_osteoporosis",
+          "manage_menopause_symptoms",
+          "manage_andropause_symptoms",
+          "improve_cardio_fitness",
+          "improve_cognitive_function",
+          "manage_chronic_inflammation",
+          "improve_mood",
+          "stay_independent_in_old_age",
+          "improve_libido_or_sexual_health",
+          "other"
+        ]
+      },
+      "minItems": 1,
+      "description": "Multi-select. Drives prioritization when time budget is tight.",
+      "intake_help": "Pick all that genuinely matter to you — but if everything is a priority, nothing is. The program will spend the most attention on whatever you pick."
+    },
+
+    "goals_freeform": {
+      "type": "string",
+      "description": "Optional free-text elaboration. Wright Vision Crafting style: 'walk unassisted at 90', 'carry grandchild at 70', etc.",
+      "intake_help": "Optional. Wright recommends a specific, vivid picture of your future self. Examples: 'walk unassisted at 90', 'carry my grandkid at 70', 'still hike trail X at 75'."
+    },
+
+    "weekly_time_budget_hours": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 30,
+      "description": "Hours per week realistically available for the program (movement + meal prep + recovery practices). Drives ruthless prioritization when tight.",
+      "intake_help": "Be honest. Total hours per week you can realistically spend on movement, meal prep, and recovery practices combined. If you can do 3 hours a week reliably, that beats planning for 10 you'll skip."
+    },
+
+    "constraints": {
+      "type": "object",
+      "properties": {
+        "no_gym_access":                  { "type": "boolean", "intake_help": "True if you don't have access to a gym or home weights." },
+        "no_sauna_access":                { "type": "boolean" },
+        "no_cold_plunge_access":          { "type": "boolean", "intake_help": "True if you don't have a cold plunge or cold-water option (cold shower still counts as access)." },
+        "financial_limit_low":            { "type": "boolean", "intake_help": "If true, the program prioritizes free/low-cost options and deprioritizes recommendations that require expensive testing or supplements." },
+        "no_outdoor_access":              { "type": "boolean", "intake_help": "If true, the morning-light protocol substitutes a 10,000-lux therapy lamp instead of outdoor sunlight." },
+        "shift_work_or_irregular_schedule":{ "type": "boolean", "intake_help": "Night shift, rotating shift, or otherwise no consistent sleep/wake time. Modifies the circadian protocols." },
+        "pregnancy_or_planning":          { "type": "boolean", "intake_help": "Pregnant, breastfeeding, or actively trying to conceive. Excludes fasting, cold immersion, certain supplements, and adjusts vitamin D dosing." }
+      }
+    },
+
+    "climate_location": {
+      "type": "object",
+      "description": "Physical climate / sun-exposure context. Latitude band can be auto-inferred by the orchestrator from `country`; skin type must be asked.",
+      "properties": {
+        "latitude_band": {
+          "type": "string",
+          "enum": ["tropical", "subtropical", "temperate", "high_latitude", "unknown"],
+          "description": "Auto-inferred from `country` by the orchestrator unless the user lives somewhere atypical. Affects vitamin D from sun and circadian-light protocols."
+        },
+        "skin_type_fitzpatrick": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6,
+          "intake_help": "How your skin reacts to sun. Type 1 = always burns, never tans (very pale). Type 2 = burns easily, tans minimally. Type 3 = sometimes burns, tans gradually (most common European). Type 4 = rarely burns, tans well (Mediterranean, light Asian, light Latin American). Type 5 = rarely burns, tans deeply (Middle Eastern, South Asian, light African). Type 6 = never burns, deeply pigmented (African, dark South Asian). Type VI requires roughly 5× the sun exposure of Type I to make the same vitamin D."
+        }
+      }
+    },
+
+    "preferences": {
+      "type": "object",
+      "properties": {
+        "open_to_hormone_therapy_discussion": {
+          "type": "string",
+          "enum": ["yes", "no", "unsure"],
+          "intake_help": "Are you open to having the program discuss hormone replacement therapy (HRT for women, TRT for men)? If 'no', the program only suggests lifestyle approaches and skips pharmacological options."
+        },
+        "open_to_supplements": {
+          "type": "string",
+          "enum": ["yes", "minimal", "no"],
+          "intake_help": "Yes = open to a full supplement stack as recommended. Minimal = only the basics (e.g., vitamin D if low). No = food-first only, no supplements."
+        },
+        "biometric_tracking_comfort": {
+          "type": "string",
+          "enum": ["high", "medium", "low"],
+          "intake_help": "How comfortable are you with using devices to track your body? High = open to a continuous glucose monitor (CGM), HRV ring/strap, sleep tracker. Medium = open to a fitness tracker but nothing more invasive. Low = prefer subjective tracking only, no wearables."
+        }
+      }
+    },
+
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": ["orchestrator", "interactive_intake", "user_provided_json"],
+          "description": "How this profile was assembled."
+        },
+        "created_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}
